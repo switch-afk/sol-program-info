@@ -9,16 +9,13 @@ const { createMockFetch, http, ok } = require('./helpers/mock-rpc');
 
 const PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const PROGRAM_DATA = 'JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4';
+const AUTHORITY = 'BPFLoaderUpgradeab1e11111111111111111111111';
 const LOADER_V2 = 'BPFLoader2111111111111111111111111111111111';
 const UPGRADEABLE = 'BPFLoaderUpgradeab1e11111111111111111111111';
 const SYSTEM = '11111111111111111111111111111111';
 
-function programData(address) {
-  const buffer = Buffer.alloc(36);
-  buffer.writeUInt32LE(2, 0);
-  base58Decode(address).copy(buffer, 4);
-  return buffer.toString('base64');
-}
+const BLOCK_TIME = 1760000000; // 2025-10-09 08:53:20 UTC
+const NOW = Date.parse('2026-10-10T00:00:00Z');
 
 function account(owner, { executable = true, data = '' } = {}) {
   return {
@@ -31,8 +28,38 @@ function account(owner, { executable = true, data = '' } = {}) {
   };
 }
 
+function upgradeableAccount() {
+  const buffer = Buffer.alloc(36);
+  buffer.writeUInt32LE(2, 0);
+  base58Decode(PROGRAM_DATA).copy(buffer, 4);
+  return account(UPGRADEABLE, { data: buffer.toString('base64') });
+}
+
+function programDataAccount({ authority = AUTHORITY, size = 134567 } = {}) {
+  const buffer = Buffer.alloc(45);
+  buffer.writeUInt32LE(3, 0);
+  buffer.writeBigUInt64LE(250000000n, 4);
+  if (authority) {
+    buffer[12] = 1;
+    base58Decode(authority).copy(buffer, 13);
+  }
+  return {
+    lamports: 1,
+    owner: UPGRADEABLE,
+    executable: false,
+    rentEpoch: 0,
+    space: 45 + size,
+    data: [buffer.toString('base64'), 'base64'],
+  };
+}
+
 function reply(value) {
   return ok({ context: { slot: 1 }, value });
+}
+
+/** The three answers an upgradeable program needs. */
+function upgradeableSteps(programData = programDataAccount()) {
+  return [reply(upgradeableAccount()), reply(programData), ok(BLOCK_TIME)];
 }
 
 /** Every test gets a mock fetch, so nothing here can reach the network. */
@@ -46,6 +73,7 @@ function capture({ env = {}, steps = [reply(account(LOADER_V2))], rpc = {} } = {
       stdout: { write: (text) => out.push(text) },
       stderr: { write: (text) => err.push(text) },
       env,
+      now: () => NOW,
       rpcOptions: { fetch, sleep: async () => {}, random: () => 0.5, ...rpc },
     },
     stdout: () => out.join(''),
@@ -114,14 +142,60 @@ test('a legacy program prints its details to stdout and exits 0', async () => {
   assert.equal(c.fetch.calls.length, 1);
 });
 
-test('an upgradeable program prints its ProgramData address', async () => {
+test('an upgradeable program prints authority, deploy date and size', async () => {
+  const c = capture({ steps: upgradeableSteps() });
+
+  assert.equal(await run([PROGRAM], c.io), 0);
+
+  const text = c.stdout();
+  assert.match(text, /^ProgramData: +JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4$/m);
+  assert.match(text, /^Authority: +BPFLoaderUpgradeab1e11111111111111111111111$/m);
+  assert.match(text, /^Last deployed: +slot 250,000,000, 2025-10-09 08:53 UTC \(about 12 months ago\)$/m);
+  assert.match(text, /^Size: +134,567 bytes/m);
+  assert.match(text, /^Upgrades: +yes, by whoever can sign/m);
+  assert.equal(c.fetch.calls.length, 3);
+});
+
+test('a frozen program says it can never be upgraded', async () => {
+  const c = capture({ steps: upgradeableSteps(programDataAccount({ authority: null })) });
+
+  assert.equal(await run([PROGRAM], c.io), 0);
+
+  assert.match(c.stdout(), /^Authority: +none; the upgrade authority was removed$/m);
+  assert.match(c.stdout(), /^Upgrades: +never; the program is frozen$/m);
+});
+
+test('a closed program is reported as closed and exits 0', async () => {
+  const c = capture({ steps: [reply(upgradeableAccount()), reply(null)] });
+
+  assert.equal(await run([PROGRAM], c.io), 0);
+
+  assert.match(c.stdout(), /^Status: +closed;/m);
+  assert.equal(c.fetch.calls.length, 2);
+});
+
+test('unreadable ProgramData exits 3', async () => {
+  const wrong = { ...programDataAccount(), owner: SYSTEM };
+  const c = capture({ steps: [reply(upgradeableAccount()), reply(wrong)] });
+
+  assert.equal(await run([PROGRAM], c.io), 3);
+
+  assert.match(c.stderr(), /not in the expected format/);
+  assert.equal(c.stdout(), '');
+});
+
+test('a missing deploy date does not fail the run', async () => {
   const c = capture({
-    steps: [reply(account(UPGRADEABLE, { data: programData(PROGRAM_DATA) }))],
+    env: { SOL_PROGRAM_INFO_RPC: 'https://rpc.example.com/?key=secret123' },
+    steps: [reply(upgradeableAccount()), reply(programDataAccount()), http(401)],
   });
 
   assert.equal(await run([PROGRAM], c.io), 0);
 
-  assert.match(c.stdout(), /^ProgramData: +JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4$/m);
+  assert.match(c.stdout(), /^Last deployed: +slot 250,000,000, date unavailable/m);
+  assert.match(c.stdout(), /^Authority:/m);
+  assert.equal(c.stdout().includes('secret123'), false);
+  assert.equal(c.stderr().includes('secret123'), false);
 });
 
 test('your own endpoint shows only its hostname, never the key', async () => {
@@ -184,6 +258,19 @@ test('a steady rate limit exits 3 after the allowed attempts', async () => {
   assert.match(c.stderr(), /rate limiting/);
   assert.equal(c.stderr().split('rate-limits heavily').length - 1, 1);
   assert.equal(c.fetch.calls.length, 2);
+  assert.equal(c.stdout(), '');
+});
+
+test('a rate limit while reading ProgramData exits 3', async () => {
+  const c = capture({
+    steps: [reply(upgradeableAccount()), http(429)],
+    rpc: { attempts: 2 },
+  });
+
+  assert.equal(await run([PROGRAM], c.io), 3);
+
+  assert.match(c.stderr(), /rate limiting/);
+  assert.equal(c.fetch.calls.length, 3);
   assert.equal(c.stdout(), '');
 });
 

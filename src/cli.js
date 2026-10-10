@@ -5,7 +5,7 @@ const { AddressError, validateProgramId } = require('./address');
 const { parseArgs } = require('./args');
 const { EndpointError, RPC_ENV, rateLimitHint, resolveEndpoint } = require('./endpoint');
 const { explainProblem, formatProgram } = require('./format');
-const { lookupProgram } = require('./program');
+const { inspectProgram } = require('./program');
 const { RpcError, createRpcClient } = require('./rpc');
 
 const HELP = `sol-program-info v${pkg.version}
@@ -44,12 +44,14 @@ const PROBLEM_EXIT = {
 
 /**
  * Run the CLI. Returns an exit code instead of exiting, so it can be tested.
- * Tests pass io.rpcOptions (fetch, sleep, attempts) to avoid the network.
+ * Tests pass io.rpcOptions (fetch, sleep, attempts) to avoid the network,
+ * and io.now to fix the clock.
  */
 async function run(argv, io = {}) {
   const stdout = io.stdout || process.stdout;
   const stderr = io.stderr || process.stderr;
   const env = io.env || process.env;
+  const now = io.now || Date.now;
 
   const args = parseArgs(argv);
 
@@ -120,7 +122,7 @@ async function run(argv, io = {}) {
 
   let info;
   try {
-    info = await lookupProgram(rpc, programId);
+    info = await inspectProgram(rpc, programId);
   } catch (error) {
     if (!(error instanceof RpcError)) throw error;
     stderr.write(`Could not look up the program on ${endpoint.host}: ${error.message}\n`);
@@ -134,7 +136,7 @@ async function run(argv, io = {}) {
     return problemExit;
   }
 
-  stdout.write(formatProgram(info));
+  stdout.write(formatProgram(info, now()));
   return 0;
 }
 

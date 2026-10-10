@@ -33,7 +33,7 @@ const LOADERS = {
     kind: 'upgradeable',
     name: 'Upgradeable BPF Loader',
     type: 'program',
-    upgrades: 'depends on the upgrade authority (checking it comes in the next release)',
+    upgrades: 'depends on the upgrade authority',
   },
   [LOADER_V4]: {
     kind: 'loader-v4',
