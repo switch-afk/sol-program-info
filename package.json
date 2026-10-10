@@ -1,6 +1,6 @@
 {
   "name": "sol-program-info",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Check if a Solana program is upgradeable, who controls it, and when it was last deployed.",
   "bin": {
     "sol-program-info": "bin/sol-program-info.js"
@@ -22,6 +22,7 @@
     "program",
     "upgrade-authority",
     "security",
+    "audit",
     "cli",
     "web3"
   ],
