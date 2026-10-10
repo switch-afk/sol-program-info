@@ -8,6 +8,7 @@ function parseArgs(argv) {
   const result = {
     help: false,
     version: false,
+    json: false,
     unknown: null,
     programIds: [],
   };
@@ -17,6 +18,8 @@ function parseArgs(argv) {
       result.help = true;
     } else if (arg === '-v' || arg === '--version') {
       result.version = true;
+    } else if (arg === '--json') {
+      result.json = true;
     } else if (arg.startsWith('-')) {
       if (result.unknown === null) result.unknown = arg;
     } else {

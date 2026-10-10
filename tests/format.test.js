@@ -104,7 +104,10 @@ test('a closed program says so instead of showing an authority', () => {
 });
 
 test('an upgradeable program without details falls back to the loader text', () => {
-  const text = formatProgram(info({ kind: 'upgradeable', owner: UPGRADEABLE, programDataAddress: PROGRAM_DATA }), NOW);
+  const text = formatProgram(
+    info({ kind: 'upgradeable', owner: UPGRADEABLE, programDataAddress: PROGRAM_DATA }),
+    NOW
+  );
 
   assert.match(text, /^Upgrades: +depends on the upgrade authority$/m);
 });
@@ -138,7 +141,13 @@ test('numbers get thousands separators', () => {
   assert.equal(withCommas(999), '999');
   assert.equal(withCommas(1000), '1,000');
   assert.equal(withCommas(250000000), '250,000,000');
+});
+
+test('sizes use KiB below 1 MiB and MiB from 1 MiB up', () => {
   assert.equal(formatBytes(134567), '134,567 bytes (131.4 KiB)');
+  assert.equal(formatBytes(1048575), '1,048,575 bytes (1024.0 KiB)');
+  assert.equal(formatBytes(1048576), '1,048,576 bytes (1.00 MiB)');
+  assert.equal(formatBytes(2892224), '2,892,224 bytes (2.76 MiB)');
 });
 
 test('not-found points at the program ID and the network', () => {

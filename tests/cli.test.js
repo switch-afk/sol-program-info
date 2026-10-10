@@ -81,10 +81,11 @@ function capture({ env = {}, steps = [reply(account(LOADER_V2))], rpc = {} } = {
   };
 }
 
-test('--help prints usage, the env var and the exit codes', async () => {
+test('--help prints usage, --json, the env var and the exit codes', async () => {
   const c = capture();
   assert.equal(await run(['--help'], c.io), 0);
   assert.match(c.stdout(), /Usage:/);
+  assert.match(c.stdout(), /--json {11}Print the result as JSON/);
   assert.match(c.stdout(), /SOL_PROGRAM_INFO_RPC/);
   assert.match(c.stdout(), /3 {2}the RPC lookup failed/);
   assert.match(c.stdout(), /4 {2}the address is not a program/);
@@ -130,24 +131,28 @@ test('a bad endpoint setting exits 1 without echoing the value', async () => {
   assert.equal(c.fetch.calls.length, 0);
 });
 
-test('a legacy program prints its details to stdout and exits 0', async () => {
+test('a legacy program opens with its verdict, then the details', async () => {
   const c = capture();
 
   assert.equal(await run([PROGRAM], c.io), 0);
 
-  assert.match(c.stdout(), /^Program: +TokenkegQfe/m);
+  const lines = c.stdout().split('\n');
+  assert.match(lines[0], /^Immutable:/);
+  assert.equal(lines[1], '');
+  assert.match(lines[2], /^Program: +TokenkegQfe/);
   assert.match(c.stdout(), /^Loader: +BPF Loader v2/m);
   assert.match(c.stdout(), /^Upgrades: +never/m);
   assert.match(c.stderr(), /Using api\.mainnet-beta\.solana\.com\./);
   assert.equal(c.fetch.calls.length, 1);
 });
 
-test('an upgradeable program prints authority, deploy date and size', async () => {
+test('an upgradeable program prints verdict, authority, deploy date and size', async () => {
   const c = capture({ steps: upgradeableSteps() });
 
   assert.equal(await run([PROGRAM], c.io), 0);
 
   const text = c.stdout();
+  assert.match(text.split('\n')[0], /^Upgradeable: whoever can sign as BPFL\.\.\.1111 can replace/);
   assert.match(text, /^ProgramData: +JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4$/m);
   assert.match(text, /^Authority: +BPFLoaderUpgradeab1e11111111111111111111111$/m);
   assert.match(text, /^Last deployed: +slot 250,000,000, 2025-10-09 08:53 UTC \(about 12 months ago\)$/m);
@@ -156,11 +161,12 @@ test('an upgradeable program prints authority, deploy date and size', async () =
   assert.equal(c.fetch.calls.length, 3);
 });
 
-test('a frozen program says it can never be upgraded', async () => {
+test('a frozen program opens with a frozen verdict', async () => {
   const c = capture({ steps: upgradeableSteps(programDataAccount({ authority: null })) });
 
   assert.equal(await run([PROGRAM], c.io), 0);
 
+  assert.match(c.stdout().split('\n')[0], /^Frozen:/);
   assert.match(c.stdout(), /^Authority: +none; the upgrade authority was removed$/m);
   assert.match(c.stdout(), /^Upgrades: +never; the program is frozen$/m);
 });
@@ -170,8 +176,79 @@ test('a closed program is reported as closed and exits 0', async () => {
 
   assert.equal(await run([PROGRAM], c.io), 0);
 
+  assert.match(c.stdout().split('\n')[0], /^Closed:/);
   assert.match(c.stdout(), /^Status: +closed;/m);
   assert.equal(c.fetch.calls.length, 2);
+});
+
+test('--json prints one parsable object and nothing else on stdout', async () => {
+  const c = capture({ steps: upgradeableSteps() });
+
+  assert.equal(await run(['--json', PROGRAM], c.io), 0);
+
+  assert.ok(c.stdout().endsWith('}\n'));
+  const { summary, ...rest } = JSON.parse(c.stdout());
+  assert.match(summary, /^Upgradeable:/);
+  assert.deepEqual(rest, {
+    programId: PROGRAM,
+    kind: 'upgradeable',
+    verdict: 'upgradeable',
+    canUpgrade: true,
+    loader: { address: UPGRADEABLE, name: 'Upgradeable BPF Loader' },
+    programData: PROGRAM_DATA,
+    authority: AUTHORITY,
+    lastDeployed: { slot: 250000000, time: '2025-10-09T08:53:20.000Z', timeNote: null },
+    sizeBytes: 134567,
+  });
+  assert.match(c.stderr(), /Using api\.mainnet-beta\.solana\.com\./);
+});
+
+test('--json works after the program ID and for a frozen program', async () => {
+  const c = capture({ steps: upgradeableSteps(programDataAccount({ authority: null })) });
+
+  assert.equal(await run([PROGRAM, '--json'], c.io), 0);
+
+  const json = JSON.parse(c.stdout());
+  assert.equal(json.verdict, 'frozen');
+  assert.equal(json.canUpgrade, false);
+  assert.equal(json.authority, null);
+});
+
+test('--json for a legacy program has nulls for the ProgramData fields', async () => {
+  const c = capture();
+
+  assert.equal(await run(['--json', PROGRAM], c.io), 0);
+
+  const json = JSON.parse(c.stdout());
+  assert.equal(json.verdict, 'immutable');
+  assert.equal(json.programData, null);
+  assert.equal(json.lastDeployed, null);
+  assert.equal(json.sizeBytes, null);
+});
+
+test('--json problems keep stdout empty and use the usual exit codes', async () => {
+  const missing = capture({ steps: [reply(null)] });
+  assert.equal(await run(['--json', PROGRAM], missing.io), 4);
+  assert.equal(missing.stdout(), '');
+  assert.match(missing.stderr(), /No account found/);
+
+  const failing = capture({ steps: [http(401)] });
+  assert.equal(await run(['--json', PROGRAM], failing.io), 3);
+  assert.equal(failing.stdout(), '');
+  assert.match(failing.stderr(), /API key/);
+});
+
+test('--json output never contains the endpoint URL or key', async () => {
+  const c = capture({
+    env: { SOL_PROGRAM_INFO_RPC: 'https://rpc.example.com/v2/secret123?key=secret123' },
+    steps: upgradeableSteps(),
+  });
+
+  assert.equal(await run(['--json', PROGRAM], c.io), 0);
+
+  assert.equal(c.stdout().includes('secret123'), false);
+  assert.equal(c.stdout().includes('rpc.example.com'), false);
+  assert.equal(c.stderr().includes('secret123'), false);
 });
 
 test('unreadable ProgramData exits 3', async () => {
@@ -194,6 +271,7 @@ test('a missing deploy date does not fail the run', async () => {
 
   assert.match(c.stdout(), /^Last deployed: +slot 250,000,000, date unavailable/m);
   assert.match(c.stdout(), /^Authority:/m);
+  assert.equal(c.stdout().includes('Last deployed about'), false);
   assert.equal(c.stdout().includes('secret123'), false);
   assert.equal(c.stderr().includes('secret123'), false);
 });
