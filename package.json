@@ -1,0 +1,38 @@
+{
+  "name": "sol-program-info",
+  "version": "0.0.1",
+  "description": "Check if a Solana program is upgradeable, who controls it, and when it was last deployed.",
+  "bin": {
+    "sol-program-info": "bin/sol-program-info.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "solana",
+    "program",
+    "upgrade-authority",
+    "security",
+    "cli",
+    "web3"
+  ],
+  "author": "switch-afk",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/switch-afk/sol-program-info.git"
+  },
+  "bugs": {
+    "url": "https://github.com/switch-afk/sol-program-info/issues"
+  },
+  "homepage": "https://github.com/switch-afk/sol-program-info#readme"
+}
