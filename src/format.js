@@ -3,6 +3,7 @@
 const { LOADERS, SYSTEM_PROGRAM, UPGRADEABLE_LOADER } = require('./loaders');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const MIB = 1024 * 1024;
 
 /** Aligned "Label:  value" lines. */
 function rows(pairs) {
@@ -15,9 +16,10 @@ function withCommas(n) {
   return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 }
 
-/** 134567 -> "134,567 bytes (131.4 KiB)" */
+/** 134567 -> "134,567 bytes (131.4 KiB)"; 2892224 -> "2,892,224 bytes (2.76 MiB)" */
 function formatBytes(n) {
-  return `${withCommas(n)} bytes (${(n / 1024).toFixed(1)} KiB)`;
+  const human = n >= MIB ? `${(n / MIB).toFixed(2)} MiB` : `${(n / 1024).toFixed(1)} KiB`;
+  return `${withCommas(n)} bytes (${human})`;
 }
 
 /** How long ago, in words, for a duration in milliseconds. */

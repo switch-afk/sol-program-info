@@ -6,6 +6,7 @@ const { parseArgs } = require('./args');
 const { EndpointError, RPC_ENV, rateLimitHint, resolveEndpoint } = require('./endpoint');
 const { explainProblem, formatProgram } = require('./format');
 const { inspectProgram } = require('./program');
+const { describe, toJson } = require('./report');
 const { RpcError, createRpcClient } = require('./rpc');
 
 const HELP = `sol-program-info v${pkg.version}
@@ -17,6 +18,7 @@ Usage:
   sol-program-info [options] <program-id>
 
 Options:
+  --json           Print the result as JSON instead of text
   -h, --help       Show this help
   -v, --version    Show the version
 
@@ -25,7 +27,8 @@ Environment:
                            rate-limit heavily)
 
 Output:
-  Results go to stdout, status messages go to stderr.
+  Results go to stdout, status messages go to stderr. With --json, stdout holds
+  only the JSON result; problems still go to stderr with the exit codes below.
 
 Exit codes:
   0  success
@@ -35,7 +38,7 @@ Exit codes:
   4  the address is not a program
 `;
 
-// Problems that end the run without a result block.
+// Problems that end the run without a result.
 const PROBLEM_EXIT = {
   'not-found': 4,
   'not-a-program': 4,
@@ -136,7 +139,14 @@ async function run(argv, io = {}) {
     return problemExit;
   }
 
-  stdout.write(formatProgram(info, now()));
+  const time = now();
+
+  if (args.json) {
+    stdout.write(`${JSON.stringify(toJson(info, time), null, 2)}\n`);
+    return 0;
+  }
+
+  stdout.write(`${describe(info, time).summary}\n\n${formatProgram(info, time)}`);
   return 0;
 }
 
