@@ -3,6 +3,7 @@
 const pkg = require('../package.json');
 const { AddressError, validateProgramId } = require('./address');
 const { parseArgs } = require('./args');
+const { EndpointError, RPC_ENV, resolveEndpoint } = require('./endpoint');
 
 const HELP = `sol-program-info v${pkg.version}
 
@@ -16,9 +17,16 @@ Options:
   -h, --help       Show this help
   -v, --version    Show the version
 
+Environment:
+  ${RPC_ENV}   Your own RPC endpoint (recommended; public RPCs
+                           rate-limit heavily)
+
+Output:
+  Results go to stdout, status messages go to stderr.
+
 Exit codes:
   0  success
-  1  invalid program ID
+  1  invalid program ID or RPC endpoint setting
   2  bad usage
 `;
 
@@ -28,6 +36,7 @@ Exit codes:
 async function run(argv, io = {}) {
   const stdout = io.stdout || process.stdout;
   const stderr = io.stderr || process.stderr;
+  const env = io.env || process.env;
 
   const args = parseArgs(argv);
 
@@ -66,6 +75,16 @@ async function run(argv, io = {}) {
     return 1;
   }
 
+  let endpoint;
+  try {
+    endpoint = resolveEndpoint(env);
+  } catch (error) {
+    if (!(error instanceof EndpointError)) throw error;
+    stderr.write(`${error.message}\n`);
+    return 1;
+  }
+
+  stderr.write(`Using ${endpoint.host}.\n`);
   stdout.write(`${programId} is a valid program ID. Program lookup is not built yet.\n`);
   return 0;
 }
